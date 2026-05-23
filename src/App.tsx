@@ -270,6 +270,9 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
 
+  // Google Sheets Dialog states
+  const [showSheetsModal, setShowSheetsModal] = useState(false);
+
   const handleHeaderLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (username === "admin" && password === "admin2026") {
@@ -515,10 +518,16 @@ export default function App() {
             </button>
           )}
 
-          <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-blue-100 font-medium bg-white/10 border border-white/20 px-2.5 py-1.5 rounded-md select-none">
-            <Database className="w-3.5 h-3.5 text-sky-300" />
-            <span className="max-w-[120px] md:max-w-xs truncate">Sumber: {dataSource.startsWith("google-sheets") ? "Google Sheet Aktif" : "Safe Backup"}</span>
-          </div>
+          <button
+            onClick={() => setShowSheetsModal(true)}
+            className="flex items-center gap-1.5 text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white border border-emerald-500/35 px-2.5 py-1.5 rounded-md shadow-3xs cursor-pointer select-none font-sans transition-all"
+            title="Kelola Koneksi Google Sheets"
+          >
+            <Database className="w-3.5 h-3.5 text-emerald-200" />
+            <span className="max-w-[120px] md:max-w-xs truncate">
+              {dataSource.startsWith("google-sheets") ? "Sheet: Aktif" : "Hubungkan Sheet"}
+            </span>
+          </button>
 
           <button
             onClick={() => fetchData()}
@@ -534,12 +543,6 @@ export default function App() {
       {/* 2. Main Workstation Area Grid */}
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 space-y-6">
         
-        {/* Google Sheets Live Database Connection Component */}
-        <GoogleSheetsConnector
-          onDataLoaded={handleCustomDataLoaded}
-          onResetToDefault={handleResetToDefault}
-          currentSource={dataSource}
-        />
 
         {/* Global Loading screen trigger */}
         {loading && (
@@ -891,6 +894,66 @@ export default function App() {
                     </button>
                   </div>
                 </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Google Sheets Live Database Connection Modal overlay */}
+      <AnimatePresence>
+        {showSheetsModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowSheetsModal(false)}
+              className="absolute inset-0 bg-slate-950/40 backdrop-blur-xs z-10"
+            />
+
+            {/* Modal Card */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ type: "spring", damping: 25, stiffness: 350 }}
+              className="relative w-full max-w-2xl bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden z-20 flex flex-col max-h-[90vh]"
+              id="google-sheets-modal"
+            >
+              <div className="px-6 py-4 border-b border-slate-150 flex items-center justify-between bg-slate-50/50">
+                <div className="flex items-center gap-2">
+                  <Database className="w-5 h-5 text-emerald-600" />
+                  <div>
+                    <h3 className="font-bold text-slate-800 text-sm">Pengaturan Google Sheets</h3>
+                    <p className="text-[10px] text-slate-400 font-medium">Muat dan integrasikan basis data personalia secara real-time</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowSheetsModal(false)}
+                  className="text-slate-400 hover:text-slate-600 font-bold p-1 bg-white hover:bg-slate-100 border border-slate-200 rounded text-xs leading-none"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-4">
+                <GoogleSheetsConnector
+                  onDataLoaded={handleCustomDataLoaded}
+                  onResetToDefault={handleResetToDefault}
+                  currentSource={dataSource}
+                />
+              </div>
+
+              <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowSheetsModal(false)}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-850 text-white rounded-lg text-xs font-bold cursor-pointer shadow-3xs transition"
+                >
+                  Selesai
+                </button>
               </div>
             </motion.div>
           </div>
