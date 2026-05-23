@@ -30,6 +30,213 @@ import MetricCards from "./components/MetricCards";
 import StatsCharts from "./components/StatsCharts";
 import EmployeeTable from "./components/EmployeeTable";
 import EmployeeDetailDrawer from "./components/EmployeeDetailDrawer";
+import GoogleSheetsConnector from "./components/GoogleSheetsConnector";
+
+const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSOZMUqBnpFybLVYHhEgmf8NQYlujf_PtCE7sl97rvY1YOT72ObbO_c_GSPyP1fLg/pub?gid=877709935&single=true&output=csv";
+
+// Fallback Indonesian civil service data in case Sheet fetch fails
+const FALLBACK_DATA = [
+  { "No": "1", "NAMA": "Budi Santoso", "PKT": "III/b", "TMT PKT": "01/10/2023", "JABATAN": "Pranata Komputer", "JJG JABATAN": "Ahli Pertama", "TMT JABATAN": "24/05/2021", "MONITORING PANGKAT": "YA", "MONITORING JENJANG": "Bersyarat" },
+  { "No": "2", "NAMA": "Hendra Wijaya", "PKT": "III/c", "TMT PKT": "01/04/2022", "JABATAN": "Analis Kepegawaian", "JJG JABATAN": "Ahli Muda", "TMT JABATAN": "15/08/2020", "MONITORING PANGKAT": "YA", "MONITORING JENJANG": "Bersyarat" },
+  { "No": "3", "NAMA": "Siti Aminah", "PKT": "IV/a", "TMT PKT": "01/10/2021", "JABATAN": "Arsiparis", "JJG JABATAN": "Ahli Madya", "TMT JABATAN": "10/12/2019", "MONITORING PANGKAT": "TIDAK", "MONITORING JENJANG": "Bersyarat" },
+  { "No": "4", "NAMA": "Rizky Alamsyah", "PKT": "III/a", "TMT PKT": "01/10/2024", "JABATAN": "Pranata Komputer", "JJG JABATAN": "Ahli Pertama", "TMT JABATAN": "24/05/2021", "MONITORING PANGKAT": "NAIK JENJANG JABATAN DULU", "MONITORING JENJANG": "Belum Memenuhi Syarat" },
+  { "No": "5", "NAMA": "Dewi Lestari", "PKT": "III/b", "TMT PKT": "01/04/2023", "JABATAN": "Analis Hukum Aparatur", "JJG JABATAN": "Ahli Pertama", "TMT JABATAN": "01/03/2018", "MONITORING PANGKAT": "YA", "MONITORING JENJANG": "Bersyarat" },
+  { "No": "6", "NAMA": "Gunawan Prasetyo", "PKT": "IV/b", "TMT PKT": "01/10/2022", "JABATAN": "Pranata Komputer", "JJG JABATAN": "Ahli Madya", "TMT JABATAN": "15/05/2021", "MONITORING PANGKAT": "YA", "MONITORING JENJANG": "Bersyarat" },
+  { "No": "7", "NAMA": "Adelia Putri", "PKT": "III/a", "TMT PKT": "01/04/2024", "JABATAN": "Pengelola Sistem Informasi", "JJG JABATAN": "Ahli Pertama", "TMT JMR JABATAN": "01/03/2022", "MONITORING PANGKAT": "BELUM 2 TAHUN", "MONITORING JENJANG": "Belum Memenuhi Syarat" },
+  { "No": "8", "NAMA": "Andi Wijaya", "PKT": "III/c", "TMT PKT": "01/10/2023", "JABATAN": "Auditor", "JJG JABATAN": "Ahli Muda", "TMT JABATAN": "12/12/2021", "MONITORING PANGKAT": "YA", "MONITORING JENJANG": "Bersyarat" },
+  { "No": "9", "NAMA": "Rina Kartika", "PKT": "III/d", "TMT PKT": "01/10/2020", "JABATAN": "Analis Kepegawaian", "JJG JABATAN": "Ahli Muda", "TMT JABATAN": "14/08/2018", "MONITORING PANGKAT": "BELUM MEMENUHI SYARAT", "MONITORING JENJANG": "Belum Memenuhi Syarat" },
+  { "No": "10", "NAMA": "Fajar Ramadhan", "PKT": "III/a", "TMT PKT": "01/10/2024", "JABATAN": "Pranata Hubungan Masyarakat", "JJG JABATAN": "Ahli Pertama", "TMT JABATAN": "24/05/2021", "MONITORING PANGKAT": "NAIK JENJANG JABATAN DULU", "MONITORING JENJANG": "Belum Memenuhi Syarat" }
+];
+
+function parseCSV(text: string): Record<string, string>[] {
+  const result: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = text[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        cell += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === ',' && !inQuotes) {
+      row.push(cell.trim());
+      cell = "";
+    } else if ((char === '\r' || char === '\n') && !inQuotes) {
+      if (char === '\r' && nextChar === '\n') {
+        i++;
+      }
+      row.push(cell.trim());
+      result.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+
+  if (row.length > 0 || cell) {
+    row.push(cell.trim());
+    result.push(row);
+  }
+
+  if (result.length === 0) return [];
+
+  const headers = result[0].map(h => 
+    h.replace(/^"|"$/g, '').replace(/\r?\n/g, ' ').replace(/\s+/g, ' ').trim()
+  );
+
+  const rows: Record<string, string>[] = [];
+  for (let i = 1; i < result.length; i++) {
+    const values = result[i];
+    if (values.length === 0 || values.every(v => !v)) continue;
+
+    const rowObj: Record<string, string> = {};
+    headers.forEach((header, idx) => {
+      rowObj[header] = (values[idx] || "").replace(/^"|"$/g, '').trim();
+    });
+    rows.push(rowObj);
+  }
+  return rows;
+}
+
+function generateCardOffline(prompt: string, columns: string[], sampleValues: Record<string, string[]>): any {
+  const normPrompt = prompt.toLowerCase();
+
+  let selectedColumn = "";
+  let selectedValue = "";
+  let operator = "contains";
+  
+  let bestScore = -1;
+  for (const col of columns) {
+    const colSamples = sampleValues[col] || [];
+    for (const val of colSamples) {
+      if (!val || val.length < 2) continue;
+      const lowerVal = val.toLowerCase();
+      if (normPrompt.includes(lowerVal)) {
+        const score = lowerVal.length;
+        if (score > bestScore) {
+          bestScore = score;
+          selectedColumn = col;
+          selectedValue = val;
+          operator = "equals";
+        }
+      }
+    }
+  }
+
+  if (!selectedColumn) {
+    for (const col of columns) {
+      const lowerCol = col.toLowerCase();
+      if (normPrompt.includes(lowerCol) || 
+          (lowerCol.includes("jabatan") && normPrompt.includes("jabatan")) ||
+          (lowerCol.includes("jenjang") && normPrompt.includes("jenjang")) ||
+          (lowerCol.includes("pangkat") && normPrompt.includes("pangkat")) ||
+          (lowerCol.includes("golongan") && normPrompt.includes("golongan"))) {
+        selectedColumn = col;
+        
+        const promptWords = normPrompt.split(/\s+/).filter(w => 
+          w.length > 2 && 
+          !lowerCol.includes(w) && 
+          !["filter", "cari", "tampilkan", "pegawai", "dengan", "yang", "dan", "atau"].includes(w)
+        );
+        
+        if (promptWords.length > 0) {
+          selectedValue = promptWords[promptWords.length - 1];
+          operator = "contains";
+        } else {
+          selectedValue = (sampleValues[col] && sampleValues[col][0]) || "";
+          operator = "contains";
+        }
+        break;
+      }
+    }
+  }
+
+  if (!selectedColumn && columns.length > 0) {
+    const priorities = [
+      "MONITORING PANGKAT",
+      "MONITORING JENJANG",
+      "PKT",
+      "JABATAN",
+      "JJG JABATAN",
+      "PANGKAT"
+    ];
+    for (const prefix of priorities) {
+      const found = columns.find(c => c.toUpperCase().includes(prefix) || prefix.includes(c.toUpperCase()));
+      if (found) {
+        selectedColumn = found;
+        const samples = sampleValues[found] || [];
+        if (normPrompt.includes("ya") || normPrompt.includes("layak")) {
+          selectedValue = "YA";
+          operator = "equals";
+        } else if (normPrompt.includes("bersyarat")) {
+          selectedValue = "Bersyarat";
+          operator = "contains";
+        } else if (normPrompt.includes("belum") || normPrompt.includes("tidak")) {
+          selectedValue = samples.find(s => s.toLowerCase().includes("belum") || s.toLowerCase().includes("tidak")) || "TIDAK";
+          operator = "contains";
+        } else {
+          selectedValue = samples[0] || "";
+          operator = "contains";
+        }
+        break;
+      }
+    }
+  }
+
+  if (!selectedColumn) {
+    selectedColumn = columns[0] || "NAMA";
+    selectedValue = "YA";
+  }
+
+  const finalCol = selectedColumn;
+  const finalVal = selectedValue || "YA";
+
+  let color = "indigo";
+  let iconName = "CheckCircle2";
+  
+  const lowerVal = finalVal.toLowerCase();
+  const lowerCol = finalCol.toLowerCase();
+
+  if (lowerVal === "ya" || lowerVal === "yes" || lowerVal.includes("selesai")) {
+    color = "emerald";
+    iconName = "CheckCircle2";
+  } else if (lowerVal === "tidak" || lowerVal === "no" || lowerVal.includes("belum") || lowerVal.includes("gagal") || lowerVal.includes("tidak layak") || lowerVal.includes("maks")) {
+    color = "rose";
+    iconName = "AlertCircle";
+  } else if (lowerVal.includes("bersyarat") || lowerVal.includes("proses") || lowerVal.includes("sedang") || lowerVal.includes("belum 2 tahun") || lowerVal.includes("tahun")) {
+    color = "amber";
+    iconName = "Clock";
+  } else if (lowerCol.includes("jabatan") || lowerCol.includes("posisi")) {
+    color = "blue";
+    iconName = "Briefcase";
+  } else if (lowerCol.includes("pkt") || lowerCol.includes("golongan") || lowerCol.includes("pangkat")) {
+    color = "indigo";
+    iconName = "Award";
+  }
+
+  let title = prompt.length < 32 ? prompt : `Filter ${finalCol}`;
+  title = title.charAt(0).toUpperCase() + title.slice(1);
+
+  const description = `Menampilkan data pegawai dengan ${finalCol} ${operator === 'equals' ? 'bernilai' : 'mengandung'} "${finalVal}"`;
+
+  return {
+    title,
+    description,
+    iconName,
+    color,
+    filterColumn: finalCol,
+    filterValue: finalVal,
+    operator
+  };
+}
 
 export default function App() {
   const [data, setData] = useState<Pegawai[]>([]);
@@ -118,17 +325,47 @@ export default function App() {
     setLoading(true);
     setFetchError(null);
     try {
+      // 1. Try backend API first in case it has been initialized or is running
       const res = await fetch("/api/data");
+      if (!res.ok) {
+        throw new Error(`API responded with status: ${res.status}`);
+      }
       const result = await res.json();
       if (result.success) {
         setData(result.data);
         setColumns(result.columns);
         setDataSource(result.source);
+        setLoading(false);
+        return;
       } else {
         throw new Error(result.message || "Gagal mengambil data.");
       }
     } catch (err: any) {
-      setFetchError(err.message || "Terjadi kesalahan jaringan.");
+      console.warn("Backend API not reachable. Connecting directly to Google Sheets CSV from client. Error:", err.message);
+      
+      // 2. Direct browser fetch of Google Sheet CSV (Vercel-safe fallback)
+      try {
+        const response = await fetch(SHEET_URL);
+        if (!response.ok) {
+          throw new Error(`Google Sheets responded with status: ${response.status}`);
+        }
+        const text = await response.text();
+        const parsed = parseCSV(text);
+        if (parsed.length === 0) {
+          throw new Error("No data found in Google Sheets CSV");
+        }
+        
+        setData(parsed);
+        setColumns(Object.keys(parsed[0]));
+        setDataSource("google-sheets-direct");
+      } catch (sheetsErr: any) {
+        console.error("Direct Google Sheet fetch failed. Using preloaded fallback data. Error:", sheetsErr.message);
+        
+        // 3. Absolute fail-safe: local dataset
+        setData(FALLBACK_DATA);
+        setColumns(Object.keys(FALLBACK_DATA[0]));
+        setDataSource("fallback-state");
+      }
     } finally {
       setLoading(false);
     }
@@ -156,21 +393,38 @@ export default function App() {
 
     try {
       const samples = getSampleValues();
-      const response = await fetch("/api/ai/generate-card", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          columns,
-          sampleValues: samples
-        })
-      });
+      let cardResult: any = null;
 
-      const result = await response.json();
-      if (result.success && result.card) {
+      try {
+        const response = await fetch("/api/ai/generate-card", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt,
+            columns,
+            sampleValues: samples
+          })
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          if (result.success && result.card) {
+            cardResult = result.card;
+          }
+        }
+      } catch (apiErr) {
+        console.warn("Express AI endpoint unreachable. Generating card locally.");
+      }
+
+      // If the express server didn't handle it (or was 404), use client-side heuristic parser
+      if (!cardResult) {
+        cardResult = generateCardOffline(prompt, columns, samples);
+      }
+
+      if (cardResult) {
         const newCard: CustomCard = {
           id: `card_${Date.now()}`,
-          ...result.card
+          ...cardResult
         };
         setCustomCards(prev => [...prev, newCard]);
         setAiSuccessMessage(`Berhasil menambahkan Kartu Kustom AI: "${newCard.title}"!`);
@@ -178,7 +432,7 @@ export default function App() {
         // Auto-hide success message
         setTimeout(() => setAiSuccessMessage(null), 5000);
       } else {
-        throw new Error(result.message || "AI tidak mengembalikan respon valid.");
+        throw new Error("Gagal memproses pembuatan kartu metrics.");
       }
     } catch (err: any) {
       setAiErrorMessage(err.message || "Gagal terhubung dengan server AI.");
@@ -190,6 +444,16 @@ export default function App() {
   // Delete dynamic custom card
   const handleDeleteCustomCard = (id: string) => {
     setCustomCards(prev => prev.filter(c => c.id !== id));
+  };
+
+  const handleCustomDataLoaded = (loadedData: Pegawai[], loadedColumns: string[], sourceName: string) => {
+    setData(loadedData);
+    setColumns(loadedColumns);
+    setDataSource(sourceName);
+  };
+
+  const handleResetToDefault = () => {
+    fetchData();
   };
 
   // Dynamic filter applicator for metrics & charts clicks
@@ -253,7 +517,7 @@ export default function App() {
 
           <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-blue-100 font-medium bg-white/10 border border-white/20 px-2.5 py-1.5 rounded-md select-none">
             <Database className="w-3.5 h-3.5 text-sky-300" />
-            <span className="max-w-[120px] md:max-w-xs truncate">Sumber: {dataSource === "google-sheets" ? "Live Feed" : "Safe Backup"}</span>
+            <span className="max-w-[120px] md:max-w-xs truncate">Sumber: {dataSource.startsWith("google-sheets") ? "Google Sheet Aktif" : "Safe Backup"}</span>
           </div>
 
           <button
@@ -270,7 +534,12 @@ export default function App() {
       {/* 2. Main Workstation Area Grid */}
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 space-y-6">
         
-
+        {/* Google Sheets Live Database Connection Component */}
+        <GoogleSheetsConnector
+          onDataLoaded={handleCustomDataLoaded}
+          onResetToDefault={handleResetToDefault}
+          currentSource={dataSource}
+        />
 
         {/* Global Loading screen trigger */}
         {loading && (
