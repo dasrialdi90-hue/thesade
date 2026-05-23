@@ -1,0 +1,641 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import React, { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import { 
+  Award, 
+  Layers, 
+  RefreshCw, 
+  Sparkles, 
+  Database,
+  Grid,
+  Info,
+  Calendar,
+  Clock,
+  CheckCircle,
+  HelpCircle,
+  TrendingUp,
+  BookOpen,
+  Lock,
+  Unlock,
+  BarChart3
+} from "lucide-react";
+import { Pegawai, CustomCard } from "./types";
+
+import AdminPanel from "./components/AdminPanel";
+import MetricCards from "./components/MetricCards";
+import StatsCharts from "./components/StatsCharts";
+import EmployeeTable from "./components/EmployeeTable";
+import EmployeeDetailDrawer from "./components/EmployeeDetailDrawer";
+
+export default function App() {
+  const [data, setData] = useState<Pegawai[]>([]);
+  const [columns, setColumns] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [dataSource, setDataSource] = useState<string>("google-sheets");
+
+  // Admin and Custom Cards State with LocalStorage Persistence
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => {
+    return localStorage.getItem("hr_dashboard_is_admin") === "true";
+  });
+
+  const [customCards, setCustomCards] = useState<CustomCard[]>(() => {
+    const saved = localStorage.getItem("hr_dashboard_custom_cards");
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
+  const [selectedEmployee, setSelectedEmployee] = useState<Pegawai | null>(null);
+  const [showStats, setShowStats] = useState(false);
+
+  // AI Generation States
+  const [isGeneratingCard, setIsGeneratingCard] = useState(false);
+  const [aiErrorMessage, setAiErrorMessage] = useState<string | null>(null);
+  const [aiSuccessMessage, setAiSuccessMessage] = useState<string | null>(null);
+
+  // Admin login dialog states
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+
+  const handleHeaderLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (username === "admin" && password === "admin2026") {
+      setIsAdmin(true);
+      setLoginError("");
+      setShowLoginModal(false);
+      setUsername("");
+      setPassword("");
+    } else {
+      setLoginError("Username atau Password salah! (admin / admin2026)");
+    }
+  };
+
+  // Helper to discover columns dynamically
+  const findColumnKey = (potentialNames: string[]): string => {
+    if (data.length === 0) return "";
+    const keys = Object.keys(data[0]);
+    for (const name of potentialNames) {
+      const found = keys.find(k => k.toLowerCase() === name.toLowerCase());
+      if (found) return found;
+    }
+    return potentialNames[0] || "";
+  };
+
+  const monitoringPangkatKey = findColumnKey(["monitoring pangkat"]);
+  const monitoringJenjangKey = findColumnKey(["monitoring jenjang", "monitoring jabatan"]);
+  const namaKey = findColumnKey(["nama pegawai", "nama"]);
+  const nipKey = findColumnKey(["nip", "id"]);
+  const golKey = findColumnKey(["golongan", "gol", "pkt"]);
+  const jabatanKey = findColumnKey(["jabatan", "posisi", "nama jabatan"]);
+
+  const bersyaratPangkatList = data.filter(row => {
+    const val = (row[monitoringPangkatKey] || "").toString().toLowerCase();
+    return val === "bersyarat";
+  });
+
+  const bersyaratJenjangList = data.filter(row => {
+    const val = (row[monitoringJenjangKey] || "").toString().toLowerCase();
+    return val === "bersyarat";
+  });
+
+  // Persist Admin and Custom Cards
+  useEffect(() => {
+    localStorage.setItem("hr_dashboard_is_admin", isAdmin.toString());
+  }, [isAdmin]);
+
+  useEffect(() => {
+    localStorage.setItem("hr_dashboard_custom_cards", JSON.stringify(customCards));
+  }, [customCards]);
+
+  // Fetch primary data on mount
+  const fetchData = async () => {
+    setLoading(true);
+    setFetchError(null);
+    try {
+      const res = await fetch("/api/data");
+      const result = await res.json();
+      if (result.success) {
+        setData(result.data);
+        setColumns(result.columns);
+        setDataSource(result.source);
+      } else {
+        throw new Error(result.message || "Gagal mengambil data.");
+      }
+    } catch (err: any) {
+      setFetchError(err.message || "Terjadi kesalahan jaringan.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  // Helper to extract clean samples for AI Context
+  const getSampleValues = () => {
+    const samples: Record<string, string[]> = {};
+    columns.forEach(col => {
+      const vals = Array.from(new Set(data.map(r => r[col]).filter(Boolean)));
+      samples[col] = vals.slice(0, 4) as string[]; // limit to 4 samples to save token budget
+    });
+    return samples;
+  };
+
+  // Trigger AI Endpoint to Suggest and Add custom metric card
+  const handleAddCustomCard = async (prompt: string) => {
+    setIsGeneratingCard(true);
+    setAiErrorMessage(null);
+    setAiSuccessMessage(null);
+
+    try {
+      const samples = getSampleValues();
+      const response = await fetch("/api/ai/generate-card", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          columns,
+          sampleValues: samples
+        })
+      });
+
+      const result = await response.json();
+      if (result.success && result.card) {
+        const newCard: CustomCard = {
+          id: `card_${Date.now()}`,
+          ...result.card
+        };
+        setCustomCards(prev => [...prev, newCard]);
+        setAiSuccessMessage(`Berhasil menambahkan Kartu Kustom AI: "${newCard.title}"!`);
+        
+        // Auto-hide success message
+        setTimeout(() => setAiSuccessMessage(null), 5000);
+      } else {
+        throw new Error(result.message || "AI tidak mengembalikan respon valid.");
+      }
+    } catch (err: any) {
+      setAiErrorMessage(err.message || "Gagal terhubung dengan server AI.");
+    } finally {
+      setIsGeneratingCard(false);
+    }
+  };
+
+  // Delete dynamic custom card
+  const handleDeleteCustomCard = (id: string) => {
+    setCustomCards(prev => prev.filter(c => c.id !== id));
+  };
+
+  // Dynamic filter applicator for metrics & charts clicks
+  const handleApplyFilter = (column: string, value: string) => {
+    setActiveFilters(prev => ({
+      ...prev,
+      [column]: value
+    }));
+    
+    // Smooth scroll down to interactive table
+    const tableEl = document.getElementById("employee-filtered-table");
+    if (tableEl) {
+      tableEl.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col" id="dashboard-application-root">
+      
+      {/* 1. Brand Banner Header (Dominant Blue header, Professional Polish theme layout) */}
+      <header className="h-16 bg-blue-800 flex items-center justify-between px-6 sm:px-8 shadow-md z-10 shrink-0 relative overflow-hidden">
+        {/* Vector decoration mesh background */}
+        <div className="absolute inset-0 opacity-10 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-sky-450 via-blue-500 to-indigo-900 pointer-events-none" />
+        
+        <div className="flex items-center space-x-3 z-10">
+          <div className="p-2 bg-white/20 rounded-lg text-white">
+            <Award className="w-6 h-6" />
+          </div>
+          <h1 className="text-white font-bold text-base sm:text-lg tracking-tight flex items-center">
+            <span>SIM-PEGAWAI</span>
+            <span className="text-blue-200 font-normal ml-3 border-l border-blue-600 pl-3 leading-none hidden sm:inline">
+              Monitoring Pangkat
+            </span>
+          </h1>
+        </div>
+
+        <div className="flex items-center space-x-3.5 z-10">
+          {/* Compact Administrator mode trigger */}
+          {isAdmin ? (
+            <button
+              onClick={() => setIsAdmin(false)}
+              className="text-[10px] font-bold px-2.5 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-md hover:bg-emerald-500/35 transition-colors flex items-center gap-1 cursor-pointer select-none font-sans"
+              title="Keluar Mode Administrator"
+            >
+              <Unlock className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+              <span>Admin: Aktif</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setLoginError("");
+                setShowLoginModal(true);
+              }}
+              className="text-[10px] font-bold px-2.5 py-1 bg-white/10 text-blue-100 border border-white/20 rounded-md hover:bg-white/15 transition-colors flex items-center gap-1 cursor-pointer font-sans"
+              title="Masuk Mode Administrator"
+            >
+              <Lock className="w-3.5 h-3.5 text-blue-300" />
+              <span>Masuk Admin</span>
+            </button>
+          )}
+
+          <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-blue-100 font-medium bg-white/10 border border-white/20 px-2.5 py-1.5 rounded-md select-none">
+            <Database className="w-3.5 h-3.5 text-sky-300" />
+            <span className="max-w-[120px] md:max-w-xs truncate">Sumber: {dataSource === "google-sheets" ? "Live Feed" : "Safe Backup"}</span>
+          </div>
+
+          <button
+            onClick={() => fetchData()}
+            disabled={loading}
+            className="p-1 px-2 hover:bg-white/15 rounded-md transition-colors cursor-pointer border border-transparent hover:border-white/10 text-white flex items-center justify-center"
+            title="Refresh Data"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+      </header>
+
+      {/* 2. Main Workstation Area Grid */}
+      <main className="flex-1 w-full max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8 space-y-6">
+        
+
+
+        {/* Global Loading screen trigger */}
+        {loading && (
+          <div className="space-y-6 py-6" id="dashboard-loading-skeleton">
+            {/* Pulsating block structures */}
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              {[1, 2, 3, 4].map(n => (
+                <div key={n} className="bg-white p-5 rounded-xl border border-slate-100 h-24 animate-pulse space-y-3">
+                  <div className="h-3 bg-slate-200 w-1/2 rounded" />
+                  <div className="h-6 bg-slate-200 w-1/3 rounded" />
+                </div>
+              ))}
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {[1, 2, 3].map(n => (
+                <div key={n} className="bg-white p-6 rounded-xl border border-slate-100 h-52 animate-pulse space-y-4">
+                  <div className="h-4 bg-slate-200 w-1/3 rounded" />
+                  <div className="space-y-2 pt-2">
+                    <div className="h-3 bg-slate-200 w-full rounded" />
+                    <div className="h-3 bg-slate-200 w-5/6 rounded" />
+                    <div className="h-3 bg-slate-200 w-4/5 rounded" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Fetch Error Display */}
+        {fetchError && !loading && (
+          <div className="text-center bg-white border border-rose-100 p-8 rounded-xl shadow-xs" id="fetch-error-container">
+            <span className="p-3 bg-rose-50 inline-block rounded-full text-rose-500 mb-2">⚠️</span>
+            <h3 className="font-bold text-slate-800 text-base">Gagal memuat data pegawai</h3>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1 mb-4">{fetchError}</p>
+            <button
+              onClick={() => fetchData()}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-3xs"
+            >
+              Coba Hubungkan Ulang
+            </button>
+          </div>
+        )}
+
+        {/* Actual Dynamic Workstation View Modules */}
+        {!loading && !fetchError && (
+          <div className="space-y-8 animate-fade-in" id="dashboard-active-modules">
+            
+            {/* A. Summary KPIs Metric Cards grid */}
+            <MetricCards
+              data={data}
+              customCards={customCards}
+              onCardClick={handleApplyFilter}
+            />
+
+            {/* B. Admin Board and AI Genni Generator Panel - ONLY shown when logged in as Admin */}
+            {isAdmin && (
+              <AdminPanel
+                isAdmin={isAdmin}
+                setIsAdmin={setIsAdmin}
+                onAddCustomCard={handleAddCustomCard}
+                customCards={customCards}
+                onDeleteCustomCard={handleDeleteCustomCard}
+                availableColumns={columns}
+                sampleValues={getSampleValues()}
+                isGeneratingCard={isGeneratingCard}
+                errorMessage={aiErrorMessage}
+              />
+            )}
+
+            {/* Floating pop notification for successful AI operations */}
+            <AnimatePresence>
+              {aiSuccessMessage && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9, y: 15 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: 15 }}
+                  className="fixed bottom-5 left-5 z-40 max-w-sm bg-slate-900 text-white px-4 py-3 rounded-lg shadow-lg border border-slate-700 flex items-center gap-2.5 font-medium text-xs whitespace-normal leading-relaxed"
+                >
+                  <Sparkles className="w-4 h-4 text-sky-400 flex-shrink-0 animate-pulse" />
+                  <span>{aiSuccessMessage}</span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* C. Dynamic visual charts (SVG, HTML lists interactive stats) with show/hide toggle */}
+            <div className="space-y-3 bg-white p-5 rounded-xl border border-slate-100 shadow-3xs" id="visualisasi-statistik-container">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-50">
+                <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5 select-none">
+                  <BarChart3 className="w-3.5 h-3.5 text-blue-500" /> Visualisasi Data Statistik
+                </h2>
+                <button
+                  onClick={() => setShowStats(!showStats)}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-100 rounded-md transition-all cursor-pointer shadow-3xs select-none"
+                >
+                  {showStats ? "Sembunyikan" : "Tampilkan"}
+                </button>
+              </div>
+              
+              <AnimatePresence>
+                {showStats && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.25, ease: "easeInOut" }}
+                    className="overflow-hidden pt-3"
+                  >
+                    <StatsCharts
+                      data={data}
+                      onBarClick={handleApplyFilter}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* B2. Conditional promotion/jenjang lists with Amber context theme */}
+            <div className="space-y-3 pt-2">
+              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Dafar Pegawai Status Bersyarat</h2>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6" id="pegawai-status-bersyarat">
+                {/* Card 1: Monitoring Pangkat Bersyarat */}
+                <div className="bg-white rounded-xl border border-slate-100 shadow-3xs p-6 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between pb-4 border-b border-slate-50 mb-3.5">
+                      <div className="flex items-center gap-2">
+                         <span className="p-1.5 bg-amber-50 text-amber-600 rounded">
+                           <Award className="w-4 h-4" />
+                         </span>
+                         <div>
+                           <h3 className="text-sm font-semibold text-slate-800">Bersyarat Naik Pangkat</h3>
+                           <span className="text-[10px] text-slate-400 font-medium block">Kategori "Bersyarat" pada kolom Monitoring Pangkat</span>
+                         </div>
+                      </div>
+                      <span className="text-xs bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded-full font-mono">
+                        {bersyaratPangkatList.length} Orang
+                      </span>
+                    </div>
+
+                    <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                      {bersyaratPangkatList.length === 0 ? (
+                        <div className="py-8 text-center text-slate-400 text-xs font-medium">
+                          Tidak ada pegawai dengan status bersyarat naik pangkat.
+                        </div>
+                      ) : (
+                        bersyaratPangkatList.map((emp, index) => {
+                          const name = String(emp[namaKey] || "N/A");
+                          const nip = String(emp[nipKey] || "-");
+                          const gol = String(emp[golKey] || "-");
+                          
+                          return (
+                            <div
+                              key={nip + "_" + index}
+                              className="flex items-center justify-between p-2.5 bg-slate-50/50 hover:bg-slate-50 border border-slate-100/50 rounded-lg group transition"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className="w-8 h-8 rounded-full bg-amber-50 text-amber-600 font-bold text-xs flex items-center justify-center flex-shrink-0 uppercase font-sans">
+                                  {name.charAt(0) || "?"}
+                                </div>
+                                <div className="min-w-0">
+                                  <span className="text-xs font-bold text-slate-700 block truncate group-hover:text-amber-700 transition-colors">
+                                    {name}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 font-mono block">
+                                    NIP: {nip} • Gol: {gol}
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => setSelectedEmployee(emp)}
+                                className="text-[10px] font-bold px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 hover:text-slate-800 rounded shadow-3xs transition cursor-pointer flex items-center"
+                              >
+                                Detail
+                              </button>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Card 2: Monitoring Jabatan/Jenjang Bersyarat */}
+                <div className="bg-white rounded-xl border border-slate-100 shadow-3xs p-6 flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between pb-4 border-b border-slate-50 mb-3.5">
+                      <div className="flex items-center gap-2">
+                         <span className="p-1.5 bg-indigo-50 text-indigo-600 rounded">
+                           <Layers className="w-4 h-4" />
+                         </span>
+                         <div>
+                           <h3 className="text-sm font-semibold text-slate-800">Bersyarat Naik Jenjang</h3>
+                           <span className="text-[10px] text-slate-400 font-medium block">Kategori "Bersyarat" pada kolom Monitoring Jenjang</span>
+                         </div>
+                      </div>
+                      <span className="text-xs bg-indigo-100 text-indigo-800 font-bold px-2 py-0.5 rounded-full font-mono">
+                        {bersyaratJenjangList.length} Orang
+                      </span>
+                    </div>
+
+                    <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                      {bersyaratJenjangList.length === 0 ? (
+                        <div className="py-8 text-center text-slate-400 text-xs font-medium">
+                          Tidak ada pegawai dengan status bersyarat naik jenjang.
+                        </div>
+                      ) : (
+                        bersyaratJenjangList.map((emp, index) => {
+                          const name = String(emp[namaKey] || "N/A");
+                          const nip = String(emp[nipKey] || "-");
+                          const jbtn = String(emp[jabatanKey] || "-");
+                          
+                          return (
+                            <div
+                              key={nip + "_" + index}
+                              className="flex items-center justify-between p-2.5 bg-slate-50/50 hover:bg-slate-50 border border-slate-100/50 rounded-lg group transition"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div className="w-8 h-8 rounded-full bg-indigo-50 text-indigo-600 font-bold text-xs flex items-center justify-center flex-shrink-0 uppercase font-sans">
+                                  {name.charAt(0) || "?"}
+                                </div>
+                                <div className="min-w-0">
+                                  <span className="text-xs font-bold text-slate-700 block truncate group-hover:text-indigo-700 transition-colors">
+                                    {name}
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 block truncate font-medium max-w-[150px] md:max-w-[200px]" title={jbtn}>
+                                    NIP: {nip} • {jbtn}
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => setSelectedEmployee(emp)}
+                                className="text-[10px] font-bold px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 hover:text-slate-800 rounded shadow-3xs transition cursor-pointer flex items-center"
+                              >
+                                Detail
+                              </button>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* D. Main Employee database filtered list table */}
+            <div className="space-y-3">
+              <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Tabel Interaktif Pegawai</h2>
+              <EmployeeTable
+                data={data}
+                columns={columns}
+                activeFilters={activeFilters}
+                setActiveFilters={setActiveFilters}
+                onSelectEmployee={(emp) => setSelectedEmployee(emp)}
+                selectedEmployeeNIP={selectedEmployee ? (selectedEmployee["NIP"] || selectedEmployee["nip"] || selectedEmployee["NAMA"] || selectedEmployee["nama"] || null) : null}
+              />
+            </div>
+
+            {/* E. Profile detailing slide-over drawer block */}
+            <AnimatePresence>
+              {selectedEmployee && (
+                <EmployeeDetailDrawer
+                  employee={selectedEmployee}
+                  onClose={() => setSelectedEmployee(null)}
+                />
+              )}
+            </AnimatePresence>
+
+          </div>
+        )}
+
+      </main>
+
+      {/* Dynamic Login Dialog / Modal Backdrop driven from Header */}
+      <AnimatePresence>
+        {showLoginModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowLoginModal(false)}
+              className="absolute inset-0 bg-slate-950/40 backdrop-blur-xs text-slate-800 z-10"
+            />
+
+            {/* Modal Card */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              transition={{ type: "spring", damping: 25, stiffness: 350 }}
+              className="relative w-full max-w-sm bg-white rounded-xl shadow-xl border border-slate-105 overflow-hidden z-20"
+              id="admin-login-modal"
+            >
+              <div className="p-6">
+                <div className="text-center mb-6">
+                  <div className="bg-blue-50 inline-flex p-3 rounded-full text-blue-600 mb-2">
+                    <Lock className="w-5 h-5" />
+                  </div>
+                  <h3 className="font-bold text-slate-800 text-base">Masuk Administrator</h3>
+                  <p className="text-xs text-slate-400 mt-1">Masukkan kredensial admin untuk melanjutkan</p>
+                </div>
+
+                <form onSubmit={handleHeaderLogin} className="space-y-4">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 block mb-1">Username</label>
+                    <input
+                      type="text"
+                      className="w-full p-2.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="Username (admin)"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-600 block mb-1">Password</label>
+                    <input
+                      type="password"
+                      className="w-full p-2.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Password (admin2026)"
+                      required
+                    />
+                  </div>
+
+                  {loginError && (
+                    <span className="text-[11px] text-rose-500 block text-center font-medium">
+                      {loginError}
+                    </span>
+                  )}
+
+                  <div className="flex items-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowLoginModal(false)}
+                      className="w-1/2 py-2 text-xs font-semibold text-slate-500 bg-slate-50 hover:bg-slate-100 rounded-lg border border-slate-100 transition cursor-pointer"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      className="w-1/2 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition cursor-pointer"
+                    >
+                      Konfirmasi
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* 3. Footer Copyright system */}
+      <footer className="bg-white border-t border-slate-200 py-6 mt-12 text-center text-xs text-slate-400 select-none">
+        <div className="space-y-1">
+          <p className="font-semibold text-slate-500">Sistem Informasi Monitoring Pangkat dan Jabatan (Si-Pangkat) © 2026</p>
+          <p className="font-medium text-slate-400">Politeknik ATI Makassar • Kementerian Keperantauan & Aparatur Sipil</p>
+        </div>
+      </footer>
+
+    </div>
+  );
+}

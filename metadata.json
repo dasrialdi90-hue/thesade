@@ -1,0 +1,6 @@
+{
+  "name": "Monitoring Pangkat dan Jenjang Pegawai",
+  "description": "Dashboard interaktif untuk memonitor pangkat, jenjang, dan status kenaikan jabatan pegawai dengan visualisasi data dan asisten AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
