@@ -12,11 +12,16 @@ import {
   signOut,
   User 
 } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 import firebaseConfig from "../../firebase-applet-config.json";
 
 // Initialize Firebase App
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+
+// Use the custom database ID if specified in the configuration
+const databaseId = (firebaseConfig as any).firestoreDatabaseId || "(default)";
+export const db = getFirestore(app, databaseId);
 
 // Configure Google Auth Provider with spreadsheet scope
 export const provider = new GoogleAuthProvider();

@@ -31,6 +31,7 @@ import StatsCharts from "./components/StatsCharts";
 import EmployeeTable from "./components/EmployeeTable";
 import EmployeeDetailDrawer from "./components/EmployeeDetailDrawer";
 import GoogleSheetsConnector from "./components/GoogleSheetsConnector";
+import MonitoringPengajuan from "./components/MonitoringPengajuan";
 
 const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSOZMUqBnpFybLVYHhEgmf8NQYlujf_PtCE7sl97rvY1YOT72ObbO_c_GSPyP1fLg/pub?gid=877709935&single=true&output=csv";
 
@@ -272,6 +273,9 @@ export default function App() {
 
   // Google Sheets Dialog states
   const [showSheetsModal, setShowSheetsModal] = useState(false);
+
+  // Active Tab navigation state
+  const [activeTab, setActiveTab] = useState<"dashboard" | "monitoring-pengajuan">("dashboard");
 
   const handleHeaderLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -589,7 +593,34 @@ export default function App() {
 
         {/* Actual Dynamic Workstation View Modules */}
         {!loading && !fetchError && (
-          <div className="space-y-8 animate-fade-in" id="dashboard-active-modules">
+          <div className="space-y-6 animate-fade-in" id="dashboard-active-modules">
+
+            {/* Dynamic visual tab switcher layout with standard responsive styling */}
+            <div className="flex border-b border-slate-200 select-none bg-white p-1 rounded-lg border border-slate-100 shadow-3xs">
+              <button
+                onClick={() => setActiveTab("dashboard")}
+                className={`flex-1 sm:flex-initial px-5 py-2.5 text-xs font-bold tracking-wider uppercase transition-all duration-200 rounded-md flex items-center justify-center gap-2 cursor-pointer ${
+                  activeTab === "dashboard"
+                    ? "bg-blue-600 text-white shadow-3xs"
+                    : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <Grid className="w-4 h-4" /> Monitoring Kepegawaian
+              </button>
+              <button
+                onClick={() => setActiveTab("monitoring-pengajuan")}
+                className={`flex-1 sm:flex-initial px-5 py-2.5 text-xs font-bold tracking-wider uppercase transition-all duration-200 rounded-md flex items-center justify-center gap-2 cursor-pointer ${
+                  activeTab === "monitoring-pengajuan"
+                    ? "bg-emerald-600 text-white shadow-3xs"
+                    : "text-slate-400 hover:text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <Award className="w-4 h-4" /> Monitoring Pengajuan
+              </button>
+            </div>
+
+            {activeTab === "dashboard" ? (
+              <div className="space-y-8 animate-fade-in">
             
             {/* A. Summary KPIs Metric Cards grid */}
             <MetricCards
@@ -812,6 +843,11 @@ export default function App() {
               )}
             </AnimatePresence>
 
+              </div>
+            ) : (
+              <MonitoringPengajuan employees={data} isAdmin={isAdmin} />
+            )}
+
           </div>
         )}
 
@@ -964,7 +1000,7 @@ export default function App() {
       <footer className="bg-white border-t border-slate-200 py-6 mt-12 text-center text-xs text-slate-400 select-none">
         <div className="space-y-1">
           <p className="font-semibold text-slate-500">Sistem Informasi Monitoring Pangkat dan Jabatan (Si-Pangkat) © 2026</p>
-          <p className="font-medium text-slate-400">Politeknik ATI Makassar • Kementerian Keperantauan & Aparatur Sipil</p>
+          <p className="font-medium text-slate-400">Politeknik ATI Makassar • Kementerian Perindustrian</p>
         </div>
       </footer>
 

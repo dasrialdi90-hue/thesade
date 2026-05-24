@@ -36,3 +36,20 @@ export interface Statistics {
     }
   };
 }
+
+export interface ProposalProgress {
+  id: string;
+  pegawaiName: string;
+  jenisPengusulan: string; // e.g., "Kenaikan Pangkat" or "Kenaikan Jenjang Jabatan"
+  kategoriStatus: string;  // e.g., "Pelengkapan Dokumen", "Pengajuan", "Menunggu SK", "Selesai" (or custom)
+  deskripsiProgress: string;
+  urlFile?: string;
+  urlGambar?: string;
+  updatedAt: string;       // ISO string or formatted datetime
+}
+
+export interface CustomCategory {
+  id: string;
+  name: string;
+}
+

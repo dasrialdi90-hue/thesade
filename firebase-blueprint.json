@@ -1,0 +1,40 @@
+{
+  "entities": {
+    "Proposal": {
+      "title": "Proposal",
+      "description": "Layanan monitoring progres kenaikan pangkat atau jenjang jabatan pegawai",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID unik untuk setiap rekaman progress" },
+        "pegawaiName": { "type": "string", "description": "Nama pegawai Pelamar" },
+        "jenisPengusulan": { "type": "string", "description": "Jenis usulan kenaikan pangkat atau jenjang" },
+        "kategoriStatus": { "type": "string", "description": "Opsi status progress, seperti pelengkapan dokumen, pengajuan, menunggu SK, selesai, atau kategori kustom" },
+        "deskripsiProgress": { "type": "string", "description": "Rincian catatan progress usulan" },
+        "urlFile": { "type": "string", "description": "Tautan dokumen pendukung" },
+        "urlGambar": { "type": "string", "description": "Tautan gambar pendukung visual" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Waktu pembaruan progress" }
+      },
+      "required": ["id", "pegawaiName", "jenisPengusulan", "kategoriStatus", "deskripsiProgress", "updatedAt"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Kategori status usulan kustom yang dapat ditambahkan oleh admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID kategori" },
+        "name": { "type": "string", "description": "Nama kategori status" }
+      },
+      "required": ["id", "name"]
+    }
+  },
+  "firestore": {
+    "proposals": {
+      "schema": "Proposal",
+      "description": "Koleksi data progress usulan kenaikan pangkat atau jenjang jabatan"
+    },
+    "categories": {
+      "schema": "Category",
+      "description": "Koleksi kategori status usulan kustom"
+    }
+  }
+}

@@ -1,0 +1,45 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default catch-all deny rule for absolute safety
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper for key validations
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    // Schemas verification helpers
+    function isValidCategory(data) {
+      return data.id is string
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 100;
+    }
+
+    function isValidProposal(data) {
+      return data.id is string
+        && data.pegawaiName is string
+        && data.pegawaiName.size() > 0
+        && data.jenisPengusulan is string
+        && data.kategoriStatus is string
+        && data.deskripsiProgress is string
+        && (!data.keys().contains('urlFile') || data.urlFile is string)
+        && (!data.keys().contains('urlGambar') || data.urlGambar is string);
+    }
+
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow create, update: if isValidCategory(request.resource.data);
+      allow delete: if true;
+    }
+
+    match /proposals/{proposalId} {
+      allow read: if true;
+      allow create, update: if isValidProposal(request.resource.data);
+      allow delete: if true;
+    }
+  }
+}
