@@ -53,3 +53,8 @@ export interface CustomCategory {
   name: string;
 }
 
+export interface CustomProposalType {
+  id: string;
+  name: string;
+}
+

@@ -36,6 +36,12 @@ service cloud.firestore {
       allow delete: if true;
     }
 
+    match /proposalTypes/{typeId} {
+      allow read: if true;
+      allow create, update: if isValidCategory(request.resource.data); // uses same validation criteria as Category since they share the same schema (id, name)
+      allow delete: if true;
+    }
+
     match /proposals/{proposalId} {
       allow read: if true;
       allow create, update: if isValidProposal(request.resource.data);

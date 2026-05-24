@@ -25,6 +25,16 @@
         "name": { "type": "string", "description": "Nama kategori status" }
       },
       "required": ["id", "name"]
+    },
+    "ProposalType": {
+      "title": "ProposalType",
+      "description": "Kategori jenis pengusulan kenaikan yang dapat ditambahkan oleh admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID jenis usulan" },
+        "name": { "type": "string", "description": "Nama jenis usulan (misal: Kenaikan Pangkat, Kenaikan Jenjang Jabatan)" }
+      },
+      "required": ["id", "name"]
     }
   },
   "firestore": {
@@ -35,6 +45,10 @@
     "categories": {
       "schema": "Category",
       "description": "Koleksi kategori status usulan kustom"
+    },
+    "proposalTypes": {
+      "schema": "ProposalType",
+      "description": "Koleksi kategori jenis usulan kustom"
     }
   }
 }

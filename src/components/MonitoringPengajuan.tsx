@@ -16,7 +16,7 @@ import {
   getFirestore 
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { ProposalProgress, CustomCategory, Pegawai } from "../types";
+import { ProposalProgress, CustomCategory, Pegawai, CustomProposalType } from "../types";
 import { 
   Database, 
   Plus, 
@@ -41,7 +41,9 @@ import {
   Grid,
   TrendingUp,
   X,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Printer,
+  ChevronDown
 } from "lucide-react";
 
 // For strict error tracking matching skill directives
@@ -73,6 +75,7 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
   // DB states
   const [proposals, setProposals] = useState<ProposalProgress[]>([]);
   const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
+  const [customProposalTypes, setCustomProposalTypes] = useState<CustomProposalType[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -87,9 +90,17 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
   const [urlGambar, setUrlGambar] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Category Form state
+  // Parameter forms visibility states
   const [newCategoryName, setNewCategoryName] = useState("");
   const [showCategoryForm, setShowCategoryForm] = useState(false);
+  const [newProposalTypeName, setNewProposalTypeName] = useState("");
+  const [showProposalTypeForm, setShowProposalTypeForm] = useState(false);
+
+  // Interactive Report Filters
+  const [filterYear, setFilterYear] = useState<string>("all");
+  const [filterMonth, setFilterMonth] = useState<string>("all");
+  const [filterJenis, setFilterJenis] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
 
   // Search/Filters for User & Reports
   const [searchByName, setSearchByName] = useState("");
@@ -114,6 +125,23 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
     return combined;
   }, [customCategories, defaultCategories]);
 
+  // Default Proposal Types (Kategori Pengusulan)
+  const defaultProposalTypes = useMemo(() => [
+    "Kenaikan Pangkat",
+    "Kenaikan Jenjang Jabatan"
+  ], []);
+
+  // Combine Default & Custom proposal types
+  const allProposalTypes = useMemo(() => {
+    const combined = [...defaultProposalTypes];
+    customProposalTypes.forEach(pt => {
+      if (!combined.includes(pt.name)) {
+        combined.push(pt.name);
+      }
+    });
+    return combined;
+  }, [customProposalTypes, defaultProposalTypes]);
+
   // Firestore Error formulation helper
   const handleFirestoreError = (error: unknown, operationType: OperationType, path: string | null) => {
     const errInfo: FirestoreErrorInfo = {
@@ -135,6 +163,7 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
       setErrorMsg(null);
       let localProposals: ProposalProgress[] = [];
       let localCats: CustomCategory[] = [];
+      let localPropTypes: CustomProposalType[] = [];
 
       // 1. Check local storage fallback first
       try {
@@ -143,6 +172,9 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
 
         const storedCats = localStorage.getItem("hr_local_cats_backup");
         if (storedCats) localCats = JSON.parse(storedCats);
+
+        const storedPropTypes = localStorage.getItem("hr_local_prop_types_backup");
+        if (storedPropTypes) localPropTypes = JSON.parse(storedPropTypes);
       } catch (e) {
         console.warn("Local storage parse fail", e);
       }
@@ -154,6 +186,13 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
         const fbCats: CustomCategory[] = [];
         catSnap.forEach(doc => {
           fbCats.push({ id: doc.id, ...doc.data() } as CustomCategory);
+        });
+
+        // Proposal Types
+        const propTypesSnap = await getDocs(collection(db, "proposalTypes"));
+        const fbPropTypes: CustomProposalType[] = [];
+        propTypesSnap.forEach(doc => {
+          fbPropTypes.push({ id: doc.id, ...doc.data() } as CustomProposalType);
         });
 
         // Proposals
@@ -171,6 +210,13 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
           setCustomCategories(localCats);
         }
 
+        if (fbPropTypes.length > 0) {
+          setCustomProposalTypes(fbPropTypes);
+          localStorage.setItem("hr_local_prop_types_backup", JSON.stringify(fbPropTypes));
+        } else {
+          setCustomProposalTypes(localPropTypes);
+        }
+
         if (fbProps.length > 0) {
           // Sort desc by updatedAt
           fbProps.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -183,6 +229,7 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
       } catch (err) {
         console.warn("Firestore not bootstrapped or permissions blocked. Using offline state. Error:", err);
         setCustomCategories(localCats);
+        setCustomProposalTypes(localPropTypes);
         setProposals(localProposals);
       } finally {
         setLoading(false);
@@ -368,6 +415,68 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
     }
   };
 
+  // Add custom proposal type
+  const handleAddProposalType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = newProposalTypeName.trim();
+    if (!cleanName) return;
+
+    if (allProposalTypes.some(pt => pt.toLowerCase() === cleanName.toLowerCase())) {
+      setErrorMsg("Jenis pengusulan tersebut sudah ada!");
+      return;
+    }
+
+    setSaving(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    const typeId = `type_${Date.now()}`;
+    const newTypeObj: CustomProposalType = { id: typeId, name: cleanName };
+
+    try {
+      await setDoc(doc(db, "proposalTypes", typeId), newTypeObj);
+      const updatedTypes = [...customProposalTypes, newTypeObj];
+      setCustomProposalTypes(updatedTypes);
+      localStorage.setItem("hr_local_prop_types_backup", JSON.stringify(updatedTypes));
+      setNewProposalTypeName("");
+      setShowProposalTypeForm(false);
+      setSuccessMsg(`Berhasil menambahkan jenis pengusulan baru: "${cleanName}"!`);
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, `proposalTypes/${typeId}`);
+      
+      const updatedTypes = [...customProposalTypes, newTypeObj];
+      setCustomProposalTypes(updatedTypes);
+      localStorage.setItem("hr_local_prop_types_backup", JSON.stringify(updatedTypes));
+      setNewProposalTypeName("");
+      setShowProposalTypeForm(false);
+      setSuccessMsg(`(Mode Backup) Jenis pengusulan "${cleanName}" tersimpan secara lokal.`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Delete custom proposal type
+  const handleDeleteProposalType = async (pt: CustomProposalType) => {
+    if (!window.confirm(`Hapus jenis pengusulan kustom "${pt.name}"?`)) return;
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    try {
+      await deleteDoc(doc(db, "proposalTypes", pt.id));
+      const filtered = customProposalTypes.filter(t => t.id !== pt.id);
+      setCustomProposalTypes(filtered);
+      localStorage.setItem("hr_local_prop_types_backup", JSON.stringify(filtered));
+      setSuccessMsg("Jenis pengusulan berhasil dihapus.");
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, `proposalTypes/${pt.id}`);
+      
+      const filtered = customProposalTypes.filter(t => t.id !== pt.id);
+      setCustomProposalTypes(filtered);
+      localStorage.setItem("hr_local_prop_types_backup", JSON.stringify(filtered));
+      setSuccessMsg("(Mode Backup) Jenis pengusulan berhasil dihapus secara lokal.");
+    }
+  };
+
   // Helper lists: active sorted employee list for dropdown auto-completions
   const activeEmployeeNames = useMemo(() => {
     const list = employees.map(emp => emp["NAMA"]).filter(Boolean);
@@ -375,6 +484,232 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
     list.sort();
     return list;
   }, [employees]);
+
+  // List of Indonesian months
+  const monthsList = useMemo(() => [
+    { name: "Januari", short: "Jan", val: "0" },
+    { name: "Februari", short: "Feb", val: "1" },
+    { name: "Maret", short: "Mar", val: "2" },
+    { name: "April", short: "Apr", val: "3" },
+    { name: "Mei", short: "Mei", val: "4" },
+    { name: "Juni", short: "Jun", val: "5" },
+    { name: "Juli", short: "Jul", val: "6" },
+    { name: "Agustus", short: "Agu", val: "7" },
+    { name: "September", short: "Sep", val: "8" },
+    { name: "Oktober", short: "Okt", val: "9" },
+    { name: "November", short: "Nov", val: "10" },
+    { name: "Desember", short: "Des", val: "11" }
+  ], []);
+
+  // Compute unique years in proposal data
+  const availableYears = useMemo(() => {
+    const yearsSet = new Set<string>();
+    proposals.forEach(p => {
+      try {
+        const yr = new Date(p.updatedAt).getFullYear().toString();
+        if (yr && yr !== "NaN" && yr.length === 4) {
+          yearsSet.add(yr);
+        }
+      } catch (e) {}
+    });
+    const yearsList = Array.from(yearsSet);
+    yearsList.sort((a,b) => b.localeCompare(a)); // Sort descending (e.g., 2026, 2025...)
+    return yearsList;
+  }, [proposals]);
+
+  // Compute monthly data counts for bar visualization (hanya usulan dengan status selesai)
+  const monthlyData = useMemo(() => {
+    const counts = Array(12).fill(0);
+    proposals.forEach(p => {
+      try {
+        const dt = new Date(p.updatedAt);
+        const yStr = dt.getFullYear().toString();
+        const m = dt.getMonth();
+        
+        // Year filter applies to bar graph. If year is "all", we aggregate.
+        if (filterYear === "all" || yStr === filterYear) {
+          const matchJenis = filterJenis === "all" || p.jenisPengusulan === filterJenis;
+          const isSelesai = p.kategoriStatus?.trim().toLowerCase() === "selesai";
+          if (matchJenis && isSelesai) {
+            counts[m] += 1;
+          }
+        }
+      } catch (e) {}
+    });
+    return monthsList.map((m, idx) => ({
+      ...m,
+      count: counts[idx]
+    }));
+  }, [proposals, filterYear, filterJenis, monthsList]);
+
+  // Dynamic max value for heights scaling
+  const maxMonthlyCount = useMemo(() => {
+    const counts = monthlyData.map(d => d.count);
+    const maxVal = Math.max(...counts);
+    return maxVal > 0 ? maxVal : 1;
+  }, [monthlyData]);
+
+  // Combined filtered proposals for the report generator
+  const filteredReportProposals = useMemo(() => {
+    return proposals.filter(p => {
+      try {
+        const dt = new Date(p.updatedAt);
+        const yStr = dt.getFullYear().toString();
+        const mStr = dt.getMonth().toString();
+        
+        const matchYear = filterYear === "all" || yStr === filterYear;
+        const matchMonth = filterMonth === "all" || mStr === filterMonth;
+        const matchJenis = filterJenis === "all" || p.jenisPengusulan === filterJenis;
+        const matchStatus = filterStatus === "all" || p.kategoriStatus === filterStatus;
+        
+        return matchYear && matchMonth && matchJenis && matchStatus;
+      } catch (e) {
+        return false;
+      }
+    });
+  }, [proposals, filterYear, filterMonth, filterJenis, filterStatus]);
+
+  // Printable report handler
+  const handlePrintReport = () => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Popup blocker aktif. Harap izinkan popup untuk menampilkan laporan cetak.");
+      return;
+    }
+    
+    const yearLabel = filterYear === "all" ? "Semua Tahun" : filterYear;
+    const monthLabel = filterMonth === "all" ? "Semua Bulan" : monthsList.find(m => m.val === filterMonth)?.name || "";
+    const jenisLabel = filterJenis === "all" ? "Semua Jenis" : filterJenis;
+    const statusLabel = filterStatus === "all" ? "Semua Status" : filterStatus;
+    
+    const tableRows = filteredReportProposals.map((p, idx) => `
+      <tr style="border-bottom: 1px solid #e2e8f0;">
+        <td style="padding: 10px; font-weight: bold; color: #1e293b;">${idx + 1}</td>
+        <td style="padding: 10px; font-weight: bold; color: #334155;">${p.pegawaiName}</td>
+        <td style="padding: 10px; color: #475569;">${p.jenisPengusulan}</td>
+        <td style="padding: 10px; color: #475569;"><span style="background-color: #f1f5f9; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; border: 1px solid #cbd5e1;">${p.kategoriStatus}</span></td>
+        <td style="padding: 10px; color: #475569; font-size: 11px;">${p.deskripsiProgress}</td>
+        <td style="padding: 10px; color: #64748b; font-size: 11px; font-family: monospace;">${new Date(p.updatedAt).toLocaleDateString("id-ID", { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+      </tr>
+    `).join("");
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Laporan_Monitoring_Kementerian_${yearLabel}</title>
+          <style>
+            body { font-family: system-ui, -apple-system, sans-serif; padding: 40px; color: #1e293b; background: white; }
+            .header { text-align: center; border-bottom: 3px double #334155; padding-bottom: 20px; margin-bottom: 25px; }
+            .logo { font-size: 20px; font-weight: 800; tracking: -0.5px; color: #0284c7; }
+            .title { font-size: 22px; font-weight: 905; color: #0f172a; margin: 10px 0 5px 0; text-transform: uppercase; }
+            .subtitle { font-size: 11px; color: #64748b; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+            .meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; background: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 8px; margin-bottom: 25px; font-size: 12px; }
+            .meta-item { display: flex; flex-direction: column; }
+            .meta-item span { font-weight: 700; color: #0f172a; margin-top: 2px; }
+            .meta-item label { font-size: 10px; text-transform: uppercase; color: #64748b; font-weight: bold; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; text-align: left; }
+            th { background-color: #f1f5f9; padding: 12px 10px; font-weight: 750; color: #475569; text-transform: uppercase; font-size: 10px; border-bottom: 2px solid #cbd5e1; }
+            .footer { margin-top: 50px; text-align: right; font-size: 11px; color: #94a3b8; }
+            .sign { margin-top: 60px; display: inline-block; text-align: center; font-size: 12px; font-weight: bold; border-top: 1px solid #475569; width: 220px; padding-top: 8px; }
+            @media print {
+              body { padding: 0; }
+              @page { size: A4 landscape; margin: 1.5cm; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="logo">KEMENTERIAN PERINDUSTRIAN RI</div>
+            <div class="title">Sistem Informasi Monitoring Kepegawaian</div>
+            <div class="subtitle">Laporan Hasil Pengajuan Pangkat & Jenjang Kepegawaian</div>
+          </div>
+          
+          <div class="meta-grid">
+            <div class="meta-item"><label>Tahun Laporan</label><span>${yearLabel}</span></div>
+            <div class="meta-item"><label>Bulan Laporan</label><span>${monthLabel || "Semua Bulan"}</span></div>
+            <div class="meta-item"><label>Filter Jenis Usulan</label><span>${jenisLabel}</span></div>
+            <div class="meta-item"><label>Filter Kategori Status</label><span>${statusLabel}</span></div>
+          </div>
+
+          <div style="margin-bottom: 15px; font-size: 12px; font-weight: bold; color: #1e293b;">
+            TOTAL USULAN YANG TERCATAT: ${filteredReportProposals.length} DATA
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 5%;">No</th>
+                <th style="width: 25%;">Nama Lengkap Pegawai</th>
+                <th style="width: 20%;">Jenis Pengusulan</th>
+                <th style="width: 15%;">Status Terbaru</th>
+                <th style="width: 20%;">Rincian Progres</th>
+                <th style="width: 15%;">Waktu Diupdate</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${tableRows || `<tr><td colspan="6" style="padding: 20px; text-align: center; color: #94a3b8;">Tidak ada data usulan yang memenuhi filter pencarian.</td></tr>`}
+            </tbody>
+          </table>
+
+          <div class="footer">
+            Dokumen ini dihasilkan secara otomatis dari Portal Kepegawaian Kementerian Perindustrian pada ${new Date().toLocaleString("id-ID")}
+            <br />
+            <div style="margin-top: 30px;">
+              <div style="display: inline-block; text-align: center;">
+                <p style="margin: 0; font-size: 11px; color: #64748b;">Mengetahui,</p>
+                <div class="sign">Admin Kepegawaian Satker</div>
+              </div>
+            </div>
+          </div>
+
+          <script>
+            window.onload = function() {
+              window.print();
+              setTimeout(function() { window.close(); }, 500);
+            }
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
+  // CSV Report exporter
+  const handleExportCSV = () => {
+    if (filteredReportProposals.length === 0) {
+      alert("Tidak ada data laporan untuk diekspor ke CSV.");
+      return;
+    }
+
+    const headers = ["Nama Pegawai", "Jenis Pengusulan", "Kategori Status", "Deskripsi Progress", "Tautan PDF Berkas", "Tautan Gambar Bukti", "Waktu Pembaruan (ISO)"];
+    
+    // Safely structure comma cells
+    const rows = filteredReportProposals.map(p => [
+      `"${p.pegawaiName.replace(/"/g, '""')}"`,
+      `"${p.jenisPengusulan.replace(/"/g, '""')}"`,
+      `"${p.kategoriStatus.replace(/"/g, '""')}"`,
+      `"${p.deskripsiProgress.replace(/"/g, '""')}"`,
+      `"${(p.urlFile || "").replace(/"/g, '""')}"`,
+      `"${(p.urlGambar || "").replace(/"/g, '""')}"`,
+      `"${p.updatedAt}"`
+    ]);
+
+    const csvContent = "data:text/csv;charset=utf-8,\uFEFF" // Add UTF-8 BOM
+      + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+    
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    
+    const yearLabel = filterYear === "all" ? "SemuaTahun" : filterYear;
+    const monthLabel = filterMonth === "all" ? "SemuaBulan" : monthsList.find(m => m.val === filterMonth)?.name || "";
+    
+    link.setAttribute("download", `Laporan_Pengajuan_${yearLabel}_${monthLabel}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setSuccessMsg("Berhasil mengunduh dokumen laporan bentuk CSV!");
+  };
 
   // Statistics calculation for 'Laporan Pengusulan'
   const reportStats = useMemo(() => {
@@ -453,17 +788,113 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
     <div className="space-y-8 animate-fade-in" id="layanan-monitoring-pengajuan">
       
       {/* Dynamic Report Summary dashboard */}
-      <section className="space-y-4">
+      <section className="space-y-6">
         <div className="flex items-center gap-2">
-          <PieChart className="w-4 h-4 text-emerald-600" />
-          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Laporan Pengusulan Pangkat & Jenjang</h2>
+          <PieChart className="w-4 h-4 text-blue-600" />
+          <h2 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Dashboard & Sistem Pelaporan Pengajuan</h2>
+        </div>
+
+        {/* Interactive Filter Report Panel */}
+        <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-3xs space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-3 border-b border-slate-100">
+            <div className="space-y-0.5">
+              <h3 className="text-xs font-bold text-slate-700 uppercase tracking-widest flex items-center gap-1.5 select-none animate-pulse-slow">
+                <FileText className="w-3.5 h-3.5 text-blue-600" /> Filter Parameter Laporan Pengajuan
+              </h3>
+              <p className="text-[10px] text-slate-400 font-medium">Saring data usulan live secara tahunan, bulanan, jenis pengajuan, maupun status progres</p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handlePrintReport}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 border border-slate-200 rounded-lg px-3.5 py-2 cursor-pointer transition select-none shadow-3xs"
+              >
+                <Printer className="w-3.5 h-3.5 text-slate-550" /> Cetak Laporan (PDF)
+              </button>
+              <button
+                onClick={handleExportCSV}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 border border-emerald-150 rounded-lg px-3.5 py-2 cursor-pointer transition select-none shadow-3xs"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5" /> Unduh Laporan (CSV)
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {/* Year filter */}
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Tahun Pengajuan</label>
+              <select
+                value={filterYear}
+                onChange={(e) => setFilterYear(e.target.value)}
+                className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-700 font-semibold transition cursor-pointer"
+              >
+                <option value="all">Saring Tahunan (Semua)</option>
+                {availableYears.map(yr => (
+                  <option key={yr} value={yr}>Tahun {yr}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Month filter */}
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Bulan Pengajuan</label>
+              <select
+                value={filterMonth}
+                onChange={(e) => setFilterMonth(e.target.value)}
+                className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-700 font-semibold transition cursor-pointer"
+              >
+                <option value="all">Saring Bulanan (Semua)</option>
+                {monthsList.map(m => (
+                  <option key={m.val} value={m.val}>{m.name}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Type/jenis filter */}
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Kategori Usulan</label>
+              <select
+                value={filterJenis}
+                onChange={(e) => setFilterJenis(e.target.value)}
+                className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-700 font-semibold transition cursor-pointer"
+              >
+                <option value="all">Saring Kategori Usulan (Semua)</option>
+                {allProposalTypes.map(pt => (
+                  <option key={pt} value={pt}>{pt}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Status filter */}
+            <div className="space-y-1">
+              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Status Progres</label>
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="w-full bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-700 font-semibold transition cursor-pointer"
+              >
+                <option value="all">Saring Status Progres (Semua)</option>
+                {allCategories.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-slate-500 bg-slate-50/50 p-3 rounded-lg border border-slate-100 gap-2">
+            <span>Hasil filter laporan aktif: <strong className="font-bold text-slate-700">{filteredReportProposals.length} Data Usulan</strong></span>
+            {filteredReportProposals.length > 0 && (
+              <span className="text-[10px] text-slate-400 font-medium italic">Mencakup {new Set(filteredReportProposals.map(p => p.pegawaiName)).size} individu pegawai dari database kementerian</span>
+            )}
+          </div>
         </div>
 
         {/* Info widgets metrics Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-3xs flex items-center justify-between">
             <div className="space-y-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Pegawai Mengusulkan</span>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Total Mengusulkan (Live)</span>
               <span className="text-2xl font-black text-slate-800 tracking-tight">{reportStats.totalProposed}</span>
             </div>
             <div className="p-3 bg-blue-50 text-blue-600 rounded-lg">
@@ -473,7 +904,7 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
 
           <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-3xs flex items-center justify-between">
             <div className="space-y-1">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Proses Berjalan (Aktif)</span>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Proses Aktif Berjalan</span>
               <span className="text-2xl font-black text-amber-600 tracking-tight">{reportStats.ongoing}</span>
             </div>
             <div className="p-3 bg-amber-50 text-amber-600 rounded-lg">
@@ -500,6 +931,82 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
               <CheckCircle2 className="w-5 h-5" />
             </div>
           </div>
+        </div>
+
+        {/* Monthly Bar Chart (January to December visualization) */}
+        <div className="bg-white p-5 rounded-xl border border-slate-100 shadow-3xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-50 pb-2">
+            <h3 className="text-xs font-bold text-slate-700 uppercase tracking-widest flex items-center gap-1.5 select-none">
+              <BarChart className="w-3.5 h-3.5 text-blue-600 animate-pulse" /> Visualisasi Grafis Batang Pengajuan Selesai (Jan s/d Des)
+            </h3>
+            <span className="text-[10px] font-black text-blue-700 bg-blue-50 border border-blue-100 px-3 py-1 rounded-full uppercase tracking-wider whitespace-nowrap">
+              Tahun: {filterYear === "all" ? "Semua Tahun" : filterYear}
+            </span>
+          </div>
+
+          <div className="pt-6">
+            <div className="relative h-44 flex items-end justify-between gap-1 sm:gap-2.5 border-b border-slate-200 pb-1">
+              
+              {/* Grid Background Lines */}
+              <div className="absolute inset-0 flex flex-col justify-between pointer-events-none select-none">
+                <div className="w-full border-t border-slate-100/70 h-0" />
+                <div className="w-full border-t border-slate-100/70 h-0" />
+                <div className="w-full border-t border-slate-100/70 h-0" />
+                <div className="w-full border-t border-slate-100/70 h-0" />
+              </div>
+
+              {/* Tally Monthly Bars */}
+              {monthlyData.map((m) => {
+                const heightPct = (m.count / maxMonthlyCount) * 100;
+                
+                return (
+                  <div key={m.val} className="flex-1 flex flex-col items-center group relative z-10 h-full justify-end">
+                    
+                    {/* Tooltip on Hover */}
+                    <div className="absolute bottom-full mb-2 bg-slate-800 text-white text-[10px] font-black py-1 px-2.5 rounded shadow-sm opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0 transition duration-200 pointer-events-none select-none whitespace-nowrap z-50">
+                      {m.count} Usulan Selesai
+                    </div>
+
+                    {/* Numeric Count Marker */}
+                    {m.count > 0 && (
+                      <span className="text-[10px] font-extrabold text-blue-600 select-none pb-1 group-hover:scale-110 transition duration-150">
+                        {m.count}
+                      </span>
+                    )}
+
+                    {/* Dynamic styled Bar with gradient */}
+                    <div 
+                      className={`w-full max-w-[32px] rounded-t-lg transition-all duration-500 ease-out cursor-pointer ${
+                        m.count > 0 
+                          ? "bg-gradient-to-t from-blue-500 to-blue-600 shadow-xs group-hover:from-blue-600 group-hover:to-blue-700" 
+                          : "bg-slate-100/50 hover:bg-slate-200 border border-slate-200/40 border-dashed"
+                      }`}
+                      style={{ height: m.count > 0 ? `${heightPct * 0.8}%` : "6px" }} // scale slightly to fit numbers at top comfortably
+                    />
+                    
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Labels under the bar line */}
+            <div className="flex justify-between gap-1 pt-2">
+              {monthlyData.map((m) => (
+                <div key={m.val} className="flex-1 text-center">
+                  <span className="hidden sm:inline text-[10px] font-bold text-slate-500 block truncate" title={m.name}>
+                    {m.name}
+                  </span>
+                  <span className="sm:hidden text-[9px] font-semibold text-slate-400 block">
+                    {m.short}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+          
+          <p className="text-[10px] text-slate-400 italic text-center">
+            * Grafik batang di atas memvisualisasikan jumlah perekaman progres usulan dengan status "Selesai" (Disetujui) per bulan yang cocok dengan saringan filter aktif.
+          </p>
         </div>
 
         {/* Breakdown distributions report list */}
@@ -793,41 +1300,65 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
       {isAdmin && (
         <section className="bg-white rounded-xl border border-slate-100 shadow-3xs p-6 space-y-6" id="editor-panel-header">
           
-          <div className="pb-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="pb-4 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="space-y-1">
-              <span className="text-[10px] font-bold text-amber-600 uppercase tracking-widest block">ADMIN ACCESS ONLY</span>
+              <span className="text-[10px] font-bold text-amber-600 uppercase tracking-widest block font-sans">ADMIN ACCESS ONLY</span>
               <h3 className="font-bold text-slate-800 text-sm tracking-tight flex items-center gap-2">
                 <Database className="w-4.5 h-4.5 text-emerald-600" /> Pengelola Progres Kenaikan Pangkat & Jenjang
               </h3>
               <p className="text-[11px] text-slate-400 font-medium">Input progres kearsipan berkas secara live ke Firestore Database</p>
             </div>
 
-            <button
-              onClick={() => {
-                setShowCategoryForm(!showCategoryForm);
-                setNewCategoryName("");
-              }}
-              className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 active:bg-emerald-200 border border-emerald-150 rounded-lg px-3.5 py-2 cursor-pointer transition select-none"
-            >
-              <Plus className="w-3.5 h-3.5" /> Kelola Kategori Status
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCategoryForm(!showCategoryForm);
+                  setShowProposalTypeForm(false);
+                  setNewCategoryName("");
+                }}
+                className={`inline-flex items-center gap-1.5 text-xs font-bold rounded-lg px-3.5 py-2 cursor-pointer transition select-none border border-emerald-150 ${
+                  showCategoryForm 
+                    ? "text-white bg-emerald-600 shadow-3xs" 
+                    : "text-emerald-700 bg-emerald-50 hover:bg-emerald-100"
+                }`}
+              >
+                <Plus className="w-3.5 h-3.5" /> Kelola Kategori Status
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => {
+                  setShowProposalTypeForm(!showProposalTypeForm);
+                  setShowCategoryForm(false);
+                  setNewProposalTypeName("");
+                }}
+                className={`inline-flex items-center gap-1.5 text-xs font-bold rounded-lg px-3.5 py-2 cursor-pointer transition select-none border border-blue-150 ${
+                  showProposalTypeForm 
+                    ? "text-white bg-blue-600 shadow-3xs" 
+                    : "text-blue-700 bg-blue-50 hover:bg-blue-100"
+                }`}
+              >
+                <Plus className="w-3.5 h-3.5" /> Kelola Jenis Usulan
+              </button>
+            </div>
           </div>
 
           {/* Manage custom categories dialog/form drawer inline */}
           {showCategoryForm && (
             <div className="p-4 bg-slate-50/70 border border-slate-100 rounded-lg space-y-4 animate-fade-in">
               <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-slate-700">Manajemen Kategori Status</h4>
-                <button onClick={() => setShowCategoryForm(false)} className="text-slate-400 hover:text-slate-600 text-xs text-bold">Tutup</button>
+                <h4 className="text-xs font-bold text-slate-700">Manajemen Kategori Status Progres</h4>
+                <button type="button" onClick={() => setShowCategoryForm(false)} className="text-slate-400 hover:text-slate-600 text-xs font-bold">Tutup</button>
               </div>
 
               <form onSubmit={handleAddCategory} className="flex gap-2 max-w-md">
                 <input
                   type="text"
-                  placeholder="Nama kategori kustom baru (misal: Sidang Tim Penilai)..."
+                  placeholder="Nama status baru (misal: Sidang Tim Penilai)..."
                   value={newCategoryName}
                   onChange={(e) => setNewCategoryName(e.target.value)}
-                  className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-700 font-medium"
                   required
                 />
                 <button
@@ -847,13 +1378,65 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {customCategories.map(cat => (
-                      <span key={cat.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-150 rounded-full text-[11px] text-slate-600">
+                      <span key={cat.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-150 rounded-full text-[11px] text-slate-650">
                         {cat.name}
                         <button
                           type="button"
                           onClick={() => handleDeleteCategory(cat)}
-                          className="hover:text-rose-500 text-slate-400 font-semibold p-0.5 text-[9px]"
+                          className="hover:text-rose-500 text-rose-500 font-semibold p-0.5 text-[9px]"
                           title="Hapus Kategori"
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Manage custom proposal types dialog/form drawer inline */}
+          {showProposalTypeForm && (
+            <div className="p-4 bg-slate-50/70 border border-slate-100 rounded-lg space-y-4 animate-fade-in">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-700 font-sans">Manajemen Kategori Jenis Usulan</h4>
+                <button type="button" onClick={() => setShowProposalTypeForm(false)} className="text-slate-400 hover:text-slate-600 text-xs font-bold">Tutup</button>
+              </div>
+
+              <form onSubmit={handleAddProposalType} className="flex gap-2 max-w-md">
+                <input
+                  type="text"
+                  placeholder="Nama jenis usulan baru (misal: Peninjauan Masa Kerja)..."
+                  value={newProposalTypeName}
+                  onChange={(e) => setNewProposalTypeName(e.target.value)}
+                  className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-700 font-medium"
+                  required
+                />
+                <button
+                  type="submit"
+                  disabled={saving || !newProposalTypeName.trim()}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg text-xs cursor-pointer transition"
+                >
+                  Tambah Jenis
+                </button>
+              </form>
+
+              {/* List of custom proposal types with delete action */}
+              <div className="space-y-2 pt-1">
+                <span className="text-[10px] font-bold text-slate-400 block uppercase">Jenis Usulan Kustom Aktif:</span>
+                {customProposalTypes.length === 0 ? (
+                  <p className="text-[10px] text-slate-400 font-sans italic">Belum ada jenis usulan kustom tambahan.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {customProposalTypes.map(pt => (
+                      <span key={pt.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-150 rounded-full text-[11px] text-slate-650">
+                        {pt.name}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteProposalType(pt)}
+                          className="hover:text-rose-500 text-rose-500 font-semibold p-0.5 text-[9px]"
+                          title="Hapus Jenis Usulan"
                         >
                           ✕
                         </button>
@@ -874,7 +1457,7 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
                 <select
                   value={selectedPegawai}
                   onChange={(e) => setSelectedPegawai(e.target.value)}
-                  className="w-full bg-slate-50/50 border border-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-700"
+                  className="w-full bg-slate-50/50 border border-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-700 cursor-pointer"
                   required
                 >
                   <option value="">-- Cari Nama Pegawai --</option>
@@ -892,10 +1475,11 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
                 <select
                   value={jenisPengusulan}
                   onChange={(e) => setJenisPengusulan(e.target.value)}
-                  className="w-full bg-slate-50/50 border border-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-700 font-medium"
+                  className="w-full bg-slate-50/50 border border-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-700 font-semibold cursor-pointer"
                 >
-                  <option value="Kenaikan Pangkat">Kenaikan Pangkat</option>
-                  <option value="Kenaikan Jenjang Jabatan">Kenaikan Jenjang Jabatan</option>
+                  {allProposalTypes.map(pt => (
+                    <option key={pt} value={pt}>{pt}</option>
+                  ))}
                 </select>
               </div>
 
@@ -904,7 +1488,7 @@ export default function MonitoringPengajuan({ employees, isAdmin }: MonitoringPe
                 <select
                   value={kategoriStatus}
                   onChange={(e) => setKategoriStatus(e.target.value)}
-                  className="w-full bg-slate-50/50 border border-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-700 font-medium"
+                  className="w-full bg-slate-50/50 border border-slate-200 rounded-lg p-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-emerald-500 text-slate-700 font-semibold cursor-pointer"
                 >
                   {allCategories.map(cat => (
                     <option key={cat} value={cat}>{cat}</option>
